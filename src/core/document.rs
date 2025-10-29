@@ -1,13 +1,14 @@
 use std::io::Error;
-
-
 use crate::lsp::client::file_path;
 use rfd::FileDialog;
 use ropey::{Rope, RopeSlice};
 use ropey::iter::Lines;
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::fs;
+use std::io::{BufWriter};
 use unicode_segmentation::UnicodeSegmentation;
+use encoding_rs::Encoding;
+
 
 use super::position::{Position};
 
@@ -47,22 +48,37 @@ impl Document {
         self.rope.slice(..)
     }
 
+
     pub fn open(filename: &str) -> Result<Self, Error> {
-        let file = File::open(filename)?;
-        let rope = Rope::from_reader(BufReader::new(file))?;
+        // 파일을 바이트 단위로 읽기
+        let bytes = fs::read(filename)?;
+
+        // 1️⃣ UTF-8 시도
+        let content = match String::from_utf8(bytes.clone()) {
+            Ok(s) => s,
+            Err(_) => {
+                // 2️⃣ 실패 시 CP949(windows-949)로 재시도
+                let encoding = Encoding::for_label(b"windows-949").unwrap_or(encoding_rs::UTF_8);
+                let (cow, _, _) = encoding.decode(&bytes);
+                cow.to_string()
+            }
+        };
+
+        // Ropey로 로딩
+        let rope = Rope::from_str(&content);
 
         let uri = file_path(filename);
         let file_data = FileData {
-            name:filename.to_owned(),
+            name: filename.to_owned(),
             uri,
         };
-        Ok(Self { 
-            rope, 
-            file_data:Some(file_data), 
-            is_saved: true
+
+        Ok(Self {
+            rope,
+            file_data: Some(file_data),
+            is_saved: true,
         })
     }
-
     pub fn new() -> Self {
         let rope = Rope::new();
         Self {
